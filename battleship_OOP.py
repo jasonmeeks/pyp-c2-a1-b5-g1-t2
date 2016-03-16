@@ -1,0 +1,832 @@
+import os
+import random
+import sys
+import collections
+
+# This doesn't work on cloud9 but works locally
+output_to_text = False
+if output_to_text:
+    orig_stdout = sys.stdout
+    f = file('out.txt', 'w')
+    sys.stdout = f
+
+board = []
+user_board = []
+
+row_label = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
+col_label = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
+ship_letters = ["A", "B", "C", "S", "D"]
+
+"""
+This is the nested dictionary where we store all the data on each ship. Here
+we will store name, size, if the ship is placed, how many hits it has, and
+if it is sunk. As a ship gets hit, we will increment 'hits' and check if 
+'hits' == 'size'. When that is true, we set 'is_sunk' to True.
+"""
+
+class Ship(object):
+    def __init__(self, ship_letter):
+        pass
+
+ 
+class Carrier(Ship):
+    size = 5
+    
+    
+    def __init__(self):
+        self.ship_letter = "A"
+        self.name = "Aircraft Carrier"
+        self.hits = 0
+        self.is_placed = False
+        self.is_sunk = False        
+
+
+class Battleship(Ship):
+    size = 4
+    
+    
+    def __init__(self):
+        self.ship_letter = "B"
+        self.name = "Battleship"
+        self.hits = 0
+        self.is_placed = False
+        self.is_sunk = False
+
+
+class Cruiser(Ship):
+    size = 3
+    
+    
+    def __init__(self):
+        self.ship_letter = "C"
+        self.name = "Cruiser"
+        self.hits = 0
+        self.is_placed = False
+        self.is_sunk = False
+
+
+class Submarine(Ship):
+    size = 3
+    
+    
+    def __init__(self):
+        self.ship_letter = "S"
+        self.name = "Submarine"
+        self.hits = 0
+        self.is_placed = False
+        self.is_sunk = False
+        
+
+
+class Destroyer(Ship):
+    size = 2
+    
+    
+    def __init__(self):
+        self.ship_letter = "D"
+        self.name = "Destroyer"
+        self.hits = 0
+        self.is_placed = False
+        self.is_sunk = False
+
+
+
+
+ship_info = {}
+            
+statistics = {
+             'hits': 0,
+             'misses': 0,
+             'total_guesses' : 0,
+             'prev_guess' : "",
+             'hit_streak' : 0,
+             'biggest_hit_streak' : 0,
+             'miss_streak' : 0,
+             'biggest_miss_streak' : 0,
+             'ships_destroyed': 0,
+             'times_cheated' : 0
+             }
+
+ai_targetting = {
+                "last_hit_coord": "",
+                "ship": "",
+                "left": True,
+                "right": True,
+                "up": True,
+                "down": True,
+                "guess_dir": "",
+                "aim_radius": 1,
+                "dir_count": 0,
+               } 
+
+
+for x in range(10):
+    board.append(["-"] * 10)
+    user_board.append(["-"] * 10)
+    
+def print_board(board):
+    x = 0
+    print "   " + "  ".join(col_label)
+    for row in board:
+        print row_label[x] + "  " + "  ".join(row)
+        x += 1
+    print ""
+    
+def print_statistics(mode):
+    percentage = (float(statistics['hits']) / statistics['total_guesses']) * 100
+    print "\nGame Statistics:"
+    print "Hits:                 " + str(statistics['hits'])
+    print "Misses:               " + str(statistics['misses'])
+    print "Total Guesses:        " + str(statistics['total_guesses'])
+    print "Percentage Hit:       " + str(round(percentage, 2)) + "%"
+    print "Biggest Hit Streak:   " + str(statistics['biggest_hit_streak'])
+    print "Biggest Miss Streak:  " + str(statistics['biggest_miss_streak'])
+    print "Ships Destroyed:      " + str(statistics['ships_destroyed'])
+    if mode == "D" or mode == "C":
+        print "Times Cheated:        " + str(statistics['times_cheated'])
+
+
+def get_ship_size(ship_letter):
+    if ship_letter == "A":
+       return Carrier.size
+    elif ship_letter == "B":
+       return Battleship.size
+    elif ship_letter == "C":
+       return Cruiser.size
+    elif ship_letter == "S":
+       return Submarine.size
+    elif ship_letter == "D":
+       return Destroyer.size
+    else:
+        print "Invalid Ship Letter Provided"
+        raise ValueError
+
+
+def get_ship_orientation():
+# Gets ship orientation input
+    while True:
+        print "\nShip orientation options:\
+            \nH for Horizontal\
+            \nV for Vertical\
+            \nG to see Game Board\n"
+        orientation = (raw_input("Please choose orientation of the ship: ")).upper()
+        if orientation == "G":
+            print_board(board)
+            continue
+        elif orientation == "H":
+            print "Horizontal ship orientation selected"
+            return orientation           
+        elif orientation == "V":
+            print "Vertical ship orientation selected"
+            return orientation
+        else:
+            print "\nPlease choose H or V"
+            continue
+
+        
+def get_ship_coordinate(orientation):
+# Gets ship coordinate as input
+    while True:
+        print "\nEnter a coordinate for row A-J and column 1-10:\
+            \nExample: 'A4'\
+            \nEnter 'G' to see Game Board\n"
+        if orientation == "H":
+            coordinate = (raw_input("\nEnter the left-most coordinate of the ship: ")).upper()
+        elif orientation == "V":
+            coordinate = (raw_input("\nEnter coordinate for the top of the ship: ")).upper()
+        if orientation == "G":
+            print_board(board)
+            continue
+        else:
+            row, col = coordinate[0], coordinate[1:]
+            # Check if row and column are in our row and column label list
+            if row in row_label and col in col_label:
+                print "Coordinate " + coordinate + " selected.\n"
+                return coordinate
+            else:
+                print "Coordinate invalid. Try again.\n"
+                continue
+        
+def check_boundaries(ship_letter, orientation, coordinate):
+# Make sure the ship fits in boundries of game board
+    # Split coordinate in to row and column data
+    row, col = coordinate[0], coordinate[1:]
+    # Match the coordinate info with row and column index in grid
+    row_index = row_label.index(row)
+    col_index = col_label.index(col)
+    # Make sure the ship size + row/column index don't exceed gameboard length
+    if orientation == "H":
+        if col_index + get_ship_size(ship_letter) > len(col_label):
+            return False
+        return True
+    elif orientation == "V":
+        if row_index + get_ship_size(ship_letter) > len(row_label):
+            return False
+        return True
+    return None # error case
+    
+    
+def space_available(ship_letter, orientation, coordinate):
+    # Split coordinate in to row and column data
+    row, col = coordinate[0], coordinate[1:]
+    # Match the coordinate info with row and column index in grid
+    row_index = row_label.index(row)
+    col_index = col_label.index(col)
+    # Check if all the spaces you are trying to place in are still empty "-"s
+    if orientation == "H":
+        for x in range(get_ship_size(ship_letter)):
+            if board[row_index][col_index + x] != "-":
+                return False
+        return True
+    elif orientation == "V":
+        for x in range(get_ship_size(ship_letter)):
+            if board[row_index + x][col_index] != "-":
+                return False
+        return True
+    return None # error case
+    
+
+def place_ship(ship_letter, orientation, coordinate):
+# Place ship letter on game board
+    # Split coordinate in to row and column data
+    row, col = coordinate[0], coordinate[1:]
+    # Match the coordinate info with row and column index in grid
+    row_index = row_label.index(row)
+    col_index = col_label.index(col)
+    # Replace each "-" with the ship letter provided
+    if orientation == "H":
+        for x in range(get_ship_size(ship_letter)):
+            board[row_index][col_index + x] = ship_letter
+    elif orientation == "V":
+        for x in range(get_ship_size(ship_letter)):
+            board[row_index + x][col_index] = ship_letter
+
+
+def get_rand_orientation():    
+    orientation = random.choice( ['H', 'V'] )
+    return  orientation
+
+ 
+def get_rand_ship():
+    while True:
+        ship_letter = random.choice( ['A', 'B', 'C', 'S', 'D'] )
+        if ship_letter not in ship_info.keys():
+            return ship_letter
+        else:
+            continue
+
+
+def get_rand_coord():
+    # THis will be used to get random coordinates 
+    row_coord = chr(random.randrange(97,107)).upper()
+    col_coord = str(random.randint(1,10))
+    return row_coord + col_coord
+
+
+def reset_aim():
+    # This resets the aim after the last hit has been exhausted
+    ai_targetting['last_hit_coord'] = ""
+    ai_targetting['ship'] = ""
+    ai_targetting['left'] = True
+    ai_targetting['right'] = True
+    ai_targetting['up'] = True
+    ai_targetting['down'] = True
+    ai_targetting['guess_dir'] = ""
+    ai_targetting['dir_count'] = 0
+    ai_targetting['aim_radius'] = 1
+
+
+def check_aim():
+    # Check to see if there are still directions that haven't been misses
+    if ai_targetting['left'] or ai_targetting['right'] or ai_targetting['up'] or ai_targetting['down']:
+        return True
+    return False
+
+
+def check_edge_case(row_index, col_index):
+    # This checks for an error where it tries to guess out of bounds
+    if ((ai_targetting['guess_dir'] == 'left' and col_index == 0) or 
+    (ai_targetting['guess_dir'] == 'right' and col_index == (len(col_label) - 1)) or 
+    (ai_targetting['guess_dir'] == 'up' and row_index == 0) or 
+    (ai_targetting['guess_dir'] == 'down' and row_index == (len(row_label) - 1))):
+        return True
+    else:
+        return False
+
+
+def ai_aimed_coord(direction):
+    """ 
+    If we have a hit, the AI starts on that coordinate and exhausts all outward directions
+    until miss or out of bounds. This code receives the direction and the radius
+    and checks to see if the next target is in the boundary. If it is not, it stops looking
+    in that direction
+    """
+    row, col = ai_targetting['last_hit_coord'][0], ai_targetting['last_hit_coord'][1:]
+    row_index = row_label.index(row)
+    col_index = col_label.index(col)
+    in_bounds = False
+    if ai_targetting[direction] == True:
+        ai_targetting['guess_dir'] = direction
+        if direction == 'up':
+            row_aimed = row_index - ai_targetting['aim_radius']
+            if row_aimed < len(row_label):
+                in_bounds = True
+                coordinate = row_label[row_aimed] + col_label[col_index]
+            else:
+                ai_targetting[direction] = False
+        elif direction == 'down':
+            row_aimed = row_index + ai_targetting['aim_radius']
+            if row_aimed < len(row_label):
+                in_bounds = True
+                coordinate = row_label[row_aimed] + col_label[col_index]
+            else:
+                ai_targetting[direction] = False
+        elif direction == 'right':
+            col_aimed = col_index + ai_targetting['aim_radius']
+            if col_aimed < len(col_label):
+                in_bounds = True
+                coordinate = row_label[row_index] + col_label[col_aimed]
+            else:
+                ai_targetting[direction] = False
+        elif direction == 'left':
+            col_aimed = col_index - ai_targetting['aim_radius']
+            if col_aimed < len(col_label):
+                in_bounds = True
+                coordinate = row_label[row_index] + col_label[col_aimed]
+            else:
+                ai_targetting[direction] = False
+        if in_bounds:
+            return coordinate
+
+
+
+def ai_get_coord():
+    """
+    If there is a hit, uses AI targetting for next coordinate. Otherwise, generate random coordinate
+
+    This AI takes the coordinate of the first hit, and goes outward in each direction one at a time until
+    it encounters a miss in that direction. It keeps going until all directions hit miss or boundary.
+    """
+    aim_tries = 0
+    directions = ['left', 'right', 'up', 'down']
+    while True:
+        # If there was a hit and not all directions have been exhausted( encounted a miss)
+        if ai_targetting['last_hit_coord'] != "" and check_aim():
+            coordinate = ai_aimed_coord(directions[ai_targetting['dir_count']])            
+            if ai_targetting['dir_count'] < 3:
+                ai_targetting['dir_count'] += 1
+            else:
+                ai_targetting['dir_count'] = 0
+                ai_targetting['aim_radius'] += 1
+            if not coordinate:
+                continue
+        else:
+            reset_aim()
+            coordinate = get_rand_coord()
+        row, col = coordinate[0], coordinate[1:]
+        row_index = row_label.index(row)
+        col_index = col_label.index(col) 
+        # If the coordinate is good, return it to program
+        if board[row_index][col_index] != "*" and board[row_index][col_index] != "X":
+            return coordinate
+        # If the target is a miss, stop guessing in that direction
+        elif board[row_index][col_index] == "X":
+            ai_targetting[ai_targetting['guess_dir']] = False
+        # If the target is already hit and the target will be a boundary next, stop this direction
+        elif board[row_index][col_index] == "*" and check_edge_case(row_index, col_index):
+            ai_targetting[ai_targetting['guess_dir']] = False
+        else:
+            aim_tries += 1
+
+
+
+def verify_response(coordinate, response):
+    # Check if user is cheating and gives wrong response
+    sunk = False
+    row, col = coordinate[0], coordinate[1:]
+    row_index = row_label.index(row)
+    col_index = col_label.index(col)  
+    # Update hit counter for ship if it is a hit and check to see if sunk
+    if board[row_index][col_index] != "-":
+        hits = ship_info[board[row_index][col_index]].hits
+        size = ship_info[board[row_index][col_index]].size
+        if (hits + 1) == size:
+            sunk = True
+    if response == "H":
+        if board[row_index][col_index] != "-" and not sunk:
+            ship_info[board[row_index][col_index]].hits += 1
+            return True
+        return False
+    elif response == "M":
+        if board[row_index][col_index] == "-":
+            return True
+        return False
+    elif response == "S":
+        if board[row_index][col_index] != "-" and sunk:
+            ship_info[board[row_index][col_index]].hits += 1
+            ship_info[board[row_index][col_index]].is_sunk = True
+            return True
+        return False       
+    else: # if it receives G or bad input
+        return True
+
+
+def ai_attack(human_response=True):
+    # AI guesses coordinates and attacks ships that have been placed
+    coordinate = ai_get_coord()
+    row, col = coordinate[0], coordinate[1:]
+    row_index = row_label.index(row)
+    col_index = col_label.index(col)  
+    print_board(board)
+    while True:
+        print "\nComputer: Attacking " + coordinate + "..."
+        print "\nHit, Miss, or Sunk?\
+            \nH for Hit\
+            \nM for Miss\
+            \nS for Sunk\
+            \nG to see Game Board\n"
+        if human_response:
+            response = (raw_input("Please choose one: ")).upper()
+        else:
+            # For AI vs AI mode    
+            response = random.choice(['H', 'M', 'S'])
+        not_cheater = verify_response(coordinate, response)
+        if not not_cheater:
+            statistics['times_cheated'] += 1
+            print "\nSTOP CHEATING SCRUB!!!"
+        if response == "G":
+            print_board(board)
+            continue
+        # Update statistics and gameplay for a hit
+        elif response == "H":
+            if not_cheater:
+                print "\nComputer: YES!!!\n"
+                # For the first hit, store the coordinates of the hit for AI targetting
+                if ai_targetting['last_hit_coord'] == "":
+                    ai_targetting['last_hit_coord'] = coordinate
+                board[row_index][col_index] = "*"
+                statistics['hits'] += 1
+                statistics['miss_streak'] = 0
+                statistics['total_guesses'] += 1
+                if statistics['prev_guess'] == "H" or statistics['prev_guess'] == "S":
+                    statistics['hit_streak'] +=1
+                    if statistics['hit_streak'] > statistics['biggest_hit_streak']:
+                        statistics['biggest_hit_streak'] = statistics['hit_streak']
+                statistics['prev_guess'] = "H"
+                break
+            else:
+                continue
+        # Update statistics and gameplay for a miss
+        elif response == "M":
+            if not_cheater:
+                print "\nComputer: I missed? :( \n"
+                # For a miss, if AI targetting is on, stop looking in directions that are misses
+                if ai_targetting['last_hit_coord'] != "":
+                    ai_targetting[ai_targetting['guess_dir']] = False
+                board[row_index][col_index] = "X"
+                statistics['misses'] += 1
+                statistics['total_guesses'] += 1
+                statistics['hit_streak'] = 0
+                if statistics['prev_guess'] == "M":
+                    statistics['miss_streak'] +=1
+                    if statistics['miss_streak'] > statistics['biggest_miss_streak']:
+                        statistics['biggest_miss_streak'] = statistics['miss_streak']
+                statistics['prev_guess'] = "M"
+                break
+            else:
+                continue
+        # Update statistics and gameplay when ship is sunk
+        elif response == "S":
+            if not_cheater:
+                print ship_info[board[row_index][col_index]].name + " destroyed!"
+                print "\nComputer: KABOOM!\n"
+                board[row_index][col_index] = "*"
+                statistics['hits'] += 1
+                statistics['miss_streak'] = 0
+                statistics['total_guesses'] += 1
+                statistics['ships_destroyed'] += 1
+                if statistics['prev_guess'] == "H" or statistics['prev_guess'] == "S":
+                    statistics['hit_streak'] +=1
+                    if statistics['hit_streak'] > statistics['biggest_hit_streak']:
+                        statistics['biggest_hit_streak'] = statistics['hit_streak']
+                statistics['prev_guess'] = "S"
+                break
+            else:
+                continue
+        else:
+            print "\nPlease enter valid input"
+            continue
+        
+        
+def get_response(coordinate):
+    # Computer generates response to give user
+    sunk = False
+    row, col = coordinate[0], coordinate[1:]
+    row_index = row_label.index(row)
+    col_index = col_label.index(col)  
+    # Update hit counter for ship if it is a hit and check to see if sunk
+    if board[row_index][col_index] != "-":
+        hits = ship_info[board[row_index][col_index]].hits
+        size = ship_info[board[row_index][col_index]].size
+        if (hits + 1) == size:
+            sunk = True
+    if board[row_index][col_index] != "-" and not sunk:
+        ship_info[board[row_index][col_index]].hits += 1
+        user_board[row_index][col_index] = "*"
+        return "H"
+    elif board[row_index][col_index] == "-":
+        user_board[row_index][col_index] = "X"
+        return "M"
+    elif board[row_index][col_index] != "-" and sunk:
+        ship_info[board[row_index][col_index]].hits += 1
+        ship_info[board[row_index][col_index]].is_sunk = True
+        user_board[row_index][col_index] = "*"
+        return "S"
+    else:
+        return "Logic error"
+
+
+
+def human_attack():
+    """
+    Similar to AI attack, human attack takes user input of a coordinate 
+    and determines hit, miss, or sunk and outputs desired result. Updates 
+    user gameboard to reflect this.
+    """
+    while True:
+        print_board(user_board)
+        coordinate = (raw_input("Enter the coordinate you would like to attack (i.e. 'A1'): ")).upper()
+        row, col = coordinate[0], coordinate[1:]
+        if row in row_label and col in col_label:
+            row_index = row_label.index(row)
+            col_index = col_label.index(col)  
+            if user_board[row_index][col_index] == "-":
+                response = get_response(coordinate)
+                if response == "H":
+                    print "\nComputer: Hit. Lucky shot.\n"
+                    statistics['hits'] += 1
+                    statistics['miss_streak'] = 0
+                    statistics['total_guesses'] += 1
+                    if statistics['prev_guess'] == "H" or statistics['prev_guess'] == "S":
+                        statistics['hit_streak'] +=1
+                        if statistics['hit_streak'] > statistics['biggest_hit_streak']:
+                            statistics['biggest_hit_streak'] = statistics['hit_streak']
+                    statistics['prev_guess'] = "H"
+                    break
+                # Update statistics and gameplay for a miss
+                elif response == "M":
+                    print "\nComputer: HAH! YOU MISSED!! \n"
+                    statistics['misses'] += 1
+                    statistics['total_guesses'] += 1
+                    statistics['hit_streak'] = 0
+                    if statistics['prev_guess'] == "M":
+                        statistics['miss_streak'] +=1
+                        if statistics['miss_streak'] > statistics['biggest_miss_streak']:
+                            statistics['biggest_miss_streak'] = statistics['miss_streak']
+                    statistics['prev_guess'] = "M"
+                    break
+                # Update statistics and gameplay when ship is sunk
+                elif response == "S":
+                    print ship_info[board[row_index][col_index]].name + " destroyed!"
+                    print "Computer: You got that one, but you won't get the rest!!\n"
+                    statistics['hits'] += 1
+                    statistics['miss_streak'] = 0
+                    statistics['total_guesses'] += 1
+                    statistics['ships_destroyed'] += 1
+                    if statistics['prev_guess'] == "H" or statistics['prev_guess'] == "S":
+                        statistics['hit_streak'] +=1
+                        if statistics['hit_streak'] > statistics['biggest_hit_streak']:
+                            statistics['biggest_hit_streak'] = statistics['hit_streak']
+                    statistics['prev_guess'] = "S"
+                    break
+                else:
+                    print "Response returned bad data"
+            else:
+                print "You already guessed there! Try somewhere else.\n"
+        else:
+            print "Please enter a valid coordinate.\n"
+            
+
+
+def create_ship(ship_letter):
+    if ship_letter == "A":
+        ship_info[ship_letter] = Carrier()
+    elif ship_letter == "B":
+        ship_info[ship_letter] = Battleship()
+    elif ship_letter == "C":
+        ship_info[ship_letter] = Cruiser()
+    elif ship_letter == "S":
+        ship_info[ship_letter] = Submarine()
+    elif ship_letter == "D":
+        ship_info[ship_letter] = Destroyer()
+    else:
+        print "Invalid Ship Letter Provided"
+        raise ValueError
+    ship_info[ship_letter].is_placed = True
+    
+
+def defend_placement():
+    '''
+    If they enter a ship, we get the orientation and coordinate, then
+    check and make sure it is in the boundary and there is space for
+    the ship. If so, place the boat and and update ship count and 
+    is_placed for that ship to reflect boat placement.
+    
+    This is pulling ship_info data from a nested dictionary I made at the 
+    top so that we could make the code cleaner (it was really bad w/o it)
+    '''    
+    ship_count = 0
+    # Loop until all 5 ships are placed
+    while ship_count < 5:
+        print "Please place one of each ship.\
+            \nA to place Aircraft Carrier (Size: 5)\
+            \nB to place Battleship       (Size: 4)\
+            \nC to place Cruiser          (Size: 3)\
+            \nS to place Submarine        (Size: 3)\
+            \nD to place Destroyer        (Size: 2)\
+            \nG to see Game Board\n"         
+        ship_letter = (raw_input("Please enter ship type: ")).upper()
+        # Print game board if they want it
+        if ship_letter == "G":
+            print_board(board)
+            continue
+        elif ship_letter in ship_letters:
+            if ship_letter not in ship_info:
+                while ship_letter not in ship_info:
+                    orientation = get_ship_orientation()
+                    coordinate = get_ship_coordinate(orientation)
+                    boundary_check = check_boundaries(ship_letter, orientation, coordinate)
+                    if boundary_check:
+                        space_check = space_available(ship_letter, orientation, coordinate)
+                        if space_check == False:
+                            print "There is already another ship there!\n"
+                    else:
+                        print "Ship out of bounds.\n"
+                    if  boundary_check and space_check:
+                        print "Location Valid. Placing ship.\n"
+                        place_ship(ship_letter, orientation, coordinate)
+                        ship_count += 1
+                        create_ship(ship_letter)
+                        print "Ship placed!\n"
+                        print_board(board)
+                    else:
+                        print "Location Invalid. Try again.\n"
+                        continue
+            else:
+                print ship_info[ship_letter].name + " already placed! Try another.\n"
+
+        else:
+            print "Please choose valid ship option\n"
+            continue
+    else:
+        print "All ships placed correctly! Congratulations!\n"
+
+
+def attack_placement():
+    '''
+    The computer will randomly place ships on the board. The user will then enter coordinates
+    and attempt to sink all the ships. Once the ships have all be sunk the game will end.
+    '''
+    
+    ship_count = 0
+    # Loop until all 5 ships are placed
+    while ship_count < 5:
+        ship_letter = get_rand_ship()
+        if ship_letter not in ship_info:
+            while ship_letter not in ship_info:
+                orientation = get_rand_orientation()
+                coordinate = get_rand_coord()
+                boundary_check = check_boundaries(ship_letter, orientation, coordinate)
+                if boundary_check:
+                    space_check = space_available(ship_letter, orientation, coordinate)
+                if  boundary_check and space_check:
+                    place_ship(ship_letter, orientation, coordinate)
+                    ship_count += 1
+                    create_ship(ship_letter)
+    else:
+        print "Computer: My ships are in position. Bring it on!\n"
+
+
+
+
+
+class Game(object):
+    '''
+    This is the main Game class that calls all the methods needed to execute the Battleship game.
+    
+    '''
+    def __init__(self):
+        # perhaps we can store statistics here
+        # and/or the game board
+        pass
+
+    @classmethod
+    def defend(cls):
+        # Defend mode game
+        game_over = False
+        print "\nEntering defend mode...\n"
+        defend_placement()
+        print "Computer beginning its attack...\n"
+        while game_over == False:
+            ai_attack()
+            for ship in ship_info:
+                if ship_info[ship].is_sunk == False:
+                    break
+            else:
+                print "Computer: GOT YOUR SHIPS, PITIFUL HUMAN!\n"
+                game_over = True
+                continue
+        else:
+            print "\nGame over!\n"
+            print ""
+            print_board(board)
+            print_statistics("D")
+            # sys.exit()
+    
+    @classmethod
+    def attack(cls):
+        # Attack mode game
+        game_over = False
+        print "\nEntering attack mode...\n"
+        attack_placement()
+        # print_board(board)
+        # print_board(user_board)
+        while game_over == False:
+            human_attack()
+            for ship in ship_info:
+                if ship_info[ship].is_sunk == False:
+                    break
+            else:
+                print "Computer: Well I'll be damned... you did it. Congratulations, human.\n"
+                game_over = True
+                continue
+        else:
+            print "\nGame over!\n"
+            print ""
+            print_board(user_board)
+            print_statistics("A")
+    
+    
+    @classmethod
+    def ai_mode(cls):
+        # AI places ships and AI attacks
+        # This mode is to look at statistics for AI performance
+        # and help debug if necessary
+        game_over = False
+        human_response = False
+        print "\nEntering AI mode...\n"
+        attack_placement()
+        print "Computer beginning its attack..."
+        while game_over == False:
+            ai_attack(human_response)
+            for ship in ship_info:
+                # print ship, ship_info[ship]['is_sunk']
+                if ship_info[ship].is_sunk == False:
+                    break
+            else:
+                game_over = True
+                continue
+        else:
+            print "\nGame over!\n"
+            print ""
+            print_board(board)
+            print_statistics("C")
+            # sys.exit()    
+    
+    
+    @classmethod
+    def start_game(cls):
+        # Main game method
+        while True:
+            print "\nWelcome to Battleship! Prepare to die.\n"
+            print "Please choose game mode.\
+                \nA for Attack Mode\
+                \nD for Defend Mode\
+                \nC for Computer Fight\
+                \nQ to Quit\n"
+            choice = (raw_input("Enter choice: ")).upper()
+            if choice.upper() == 'A':
+                cls.attack()
+                break
+            elif choice.upper() == 'D':
+                cls.defend()
+                break
+            elif choice.upper() == 'C':
+                cls.ai_mode()
+                break
+            elif choice.upper() == 'Q':
+                sys.exit()
+            else:
+                print "Invalid choice"
+                continue
+    
+
+battleship_game = Game()
+battleship_game.start_game()
+
+
+
+
+if output_to_text:
+    sys.stdout = orig_stdout
+    f.close()
